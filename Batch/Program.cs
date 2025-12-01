@@ -6,6 +6,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
+using Quartz;
 
 var builder = Host.CreateApplicationBuilder(args);
 
@@ -19,7 +20,7 @@ string? connectionString;
 if (isDevelopment)
 {
     // Use local appsettings.json
-    Console.WriteLine("Development mode: Using local configuration");
+    Console.WriteLine("📍 Development mode: Using local configuration");
     
     connectionString = builder.Configuration.GetConnectionString("DefaultConnection");
     
@@ -60,8 +61,29 @@ builder.Services.AddDbContext<ApplicationDbContext>(options =>
 builder.Services.AddScoped<IUserRepository, UserRepository>();
 builder.Services.AddScoped<IUserService, UserService>();
 
-// Register jobs
-builder.Services.AddHostedService<ProcessingJob>();
+// Configure Quartz.NET
+builder.Services.AddQuartz(q =>
+{
+    var jobKey = new JobKey("UserProcessingJob");
+    
+    q.AddJob<SchedulerJob>(opts => opts.WithIdentity(jobKey));
+    
+    q.AddTrigger(opts => opts
+        .ForJob(jobKey)
+        .WithIdentity("UserProcessingJob-trigger")
+        .WithSimpleSchedule(x => x
+            .WithIntervalInSeconds(10)
+            .RepeatForever()));
+});
+
+// Add Quartz hosted service
+builder.Services.AddQuartzHostedService(options =>
+{
+    options.WaitForJobsToComplete = true;
+});
 
 var host = builder.Build();
+
+Console.WriteLine("🚀 Application starting...");
+
 await host.RunAsync();

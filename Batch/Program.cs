@@ -9,23 +9,48 @@ using Microsoft.Extensions.Hosting;
 
 var builder = Host.CreateApplicationBuilder(args);
 
-// Load configuration from AWS Secrets Manager
-var secretName = builder.Configuration["AWS:SecretName"] ?? "batch-app/database";
-var region = builder.Configuration["AWS:Region"] ?? "ap-southeast-1";
+var isDevelopment = builder.Environment.IsDevelopment();
+var environment = builder.Environment.EnvironmentName;
 
-Console.WriteLine($"Loading database credentials from AWS Secrets Manager: {secretName}");
+Console.WriteLine($"Environment: {environment}");
 
-builder.Configuration.AddAwsSecretsManager(secretName, region);
+string? connectionString;
 
-// Get connection string (built by the configuration provider)
-var connectionString = builder.Configuration.GetConnectionString("DefaultConnection");
-
-if (string.IsNullOrEmpty(connectionString))
+if (isDevelopment)
 {
-    throw new InvalidOperationException("Database connection string not configured");
+    // Use local appsettings.json
+    Console.WriteLine("Development mode: Using local configuration");
+    
+    connectionString = builder.Configuration.GetConnectionString("DefaultConnection");
+    
+    if (string.IsNullOrEmpty(connectionString))
+    {
+        throw new InvalidOperationException("Connection string not found in appsettings.json");
+    }
+    
+    Console.WriteLine("Connection string loaded from appsettings.json");
 }
-
-Console.WriteLine("Database connection configured successfully");
+else
+{
+    // Load from AWS Secrets Manager
+    Console.WriteLine("🔐 Production mode: Loading from AWS Secrets Manager");
+    
+    var secretName = builder.Configuration["AWS:SecretName"] ?? "batch-app/database";
+    var region = builder.Configuration["AWS:Region"] ?? "ap-southeast-1";
+    
+    Console.WriteLine($"Loading secrets from: {secretName} ({region})");
+    
+    builder.Configuration.AddAwsSecretsManager(secretName, region);
+    
+    connectionString = builder.Configuration.GetConnectionString("DefaultConnection");
+    
+    if (string.IsNullOrEmpty(connectionString))
+    {
+        throw new InvalidOperationException("Connection string not found in AWS Secrets Manager");
+    }
+    
+    Console.WriteLine("Connection string loaded from AWS Secrets Manager");
+}
 
 // Register DbContext
 builder.Services.AddDbContext<ApplicationDbContext>(options =>

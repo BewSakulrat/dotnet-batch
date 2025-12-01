@@ -1,48 +1,67 @@
-﻿using Batch.Models;
+﻿using Batch.Configuration;
+using Batch.Jobs;
+using Batch.Models;
 using Batch.Services;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
-using Microsoft.Extensions.Logging;
 
 var builder = Host.CreateApplicationBuilder(args);
 
-// DEBUG: Check if connection string is loaded
-var connectionString = builder.Configuration.GetConnectionString("DefaultConnection");
-Console.WriteLine($"Connection String: {connectionString ?? "NULL - NOT FOUND!"}");
+var isDevelopment = builder.Environment.IsDevelopment();
+var environment = builder.Environment.EnvironmentName;
 
-if (string.IsNullOrEmpty(connectionString))
+Console.WriteLine($"Environment: {environment}");
+
+string? connectionString;
+
+if (isDevelopment)
 {
-    throw new InvalidOperationException("Connection string 'DefaultConnection' is not configured in appsettings.json");
+    // Use local appsettings.json
+    Console.WriteLine("Development mode: Using local configuration");
+    
+    connectionString = builder.Configuration.GetConnectionString("DefaultConnection");
+    
+    if (string.IsNullOrEmpty(connectionString))
+    {
+        throw new InvalidOperationException("Connection string not found in appsettings.json");
+    }
+    
+    Console.WriteLine("Connection string loaded from appsettings.json");
+}
+else
+{
+    // Load from AWS Secrets Manager
+    Console.WriteLine("🔐 Production mode: Loading from AWS Secrets Manager");
+    
+    var secretName = builder.Configuration["AWS:SecretName"] ?? "batch-app/database";
+    var region = builder.Configuration["AWS:Region"] ?? "ap-southeast-1";
+    
+    Console.WriteLine($"Loading secrets from: {secretName} ({region})");
+    
+    builder.Configuration.AddAwsSecretsManager(secretName, region);
+    
+    connectionString = builder.Configuration.GetConnectionString("DefaultConnection");
+    
+    if (string.IsNullOrEmpty(connectionString))
+    {
+        throw new InvalidOperationException("Connection string not found in AWS Secrets Manager");
+    }
+    
+    Console.WriteLine("Connection string loaded from AWS Secrets Manager");
 }
 
-// Register repository
+// Register DbContext
+builder.Services.AddDbContext<ApplicationDbContext>(options =>
+    options.UseSqlServer(connectionString));
+
+// Register services
 builder.Services.AddScoped<IUserRepository, UserRepository>();
 builder.Services.AddScoped<IUserService, UserService>();
 
-// If using Entity Framework Core
-builder.Services.AddDbContext<ApplicationDbContext>(options =>
-    options.UseSqlServer(builder.Configuration.GetConnectionString("DefaultConnection")));
+// Register jobs
+builder.Services.AddHostedService<ProcessingJob>();
 
 var host = builder.Build();
-
-// Run the job
-using (var scope = host.Services.CreateScope())
-{
-    var logger = scope.ServiceProvider.GetRequiredService<ILogger<Program>>();
-    var userService = scope.ServiceProvider.GetRequiredService<IUserService>();
-    
-    try
-    {
-        logger.LogInformation("Starting batch job...");
-        var user = await userService.GetUserByIdAsync(1);
-        logger.LogInformation($"User: {user.Id}");
-        logger.LogInformation("Batch job completed successfully");
-    }
-    catch (Exception ex)
-    {
-        logger.LogError(ex, "Batch job failed");
-        Environment.Exit(1);
-    }
-}
+await host.RunAsync();

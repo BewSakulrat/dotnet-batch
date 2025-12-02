@@ -20,7 +20,7 @@ string? connectionString;
 if (isDevelopment)
 {
     // Use local appsettings.json
-    Console.WriteLine("📍 Development mode: Using local configuration");
+    Console.WriteLine("Development mode: Using local configuration");
     
     connectionString = builder.Configuration.GetConnectionString("DefaultConnection");
     
@@ -34,7 +34,7 @@ if (isDevelopment)
 else
 {
     // Load from AWS Secrets Manager
-    Console.WriteLine("🔐 Production mode: Loading from AWS Secrets Manager");
+    Console.WriteLine("Production mode: Loading from AWS Secrets Manager");
     
     var secretName = builder.Configuration["AWS:SecretName"] ?? "batch-app/database";
     var region = builder.Configuration["AWS:Region"] ?? "ap-southeast-1";
@@ -84,6 +84,6 @@ builder.Services.AddQuartzHostedService(options =>
 
 var host = builder.Build();
 
-Console.WriteLine("🚀 Application starting...");
+Console.WriteLine("Application starting...");
 
 await host.RunAsync();
